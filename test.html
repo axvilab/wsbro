@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WSBro Integration Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://js.pusher.com/8.2/pusher.min.js"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-8">
+    <div class="max-w-2xl mx-auto">
+        <h1 class="text-2xl font-bold mb-6">WSBro Integration Test</h1>
+
+        <div class="space-y-4 mb-8">
+            <div class="flex gap-4">
+                <input id="host" type="text" value="localhost" placeholder="Host"
+                    class="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm flex-1">
+                <input id="port" type="text" value="6001" placeholder="Port"
+                    class="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm w-24">
+                <input id="key" type="text" value="app-key" placeholder="App Key"
+                    class="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm flex-1">
+            </div>
+            <div class="flex gap-4">
+                <button onclick="connect()" class="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg text-sm font-medium">Connect</button>
+                <button onclick="disconnect()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg text-sm font-medium">Disconnect</button>
+            </div>
+        </div>
+
+        <div class="space-y-4 mb-8">
+            <h2 class="text-lg font-semibold">Subscribe to Channel</h2>
+            <div class="flex gap-4">
+                <input id="channel" type="text" value="orders" placeholder="Channel name"
+                    class="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm flex-1">
+                <button onclick="subscribe()" class="bg-sky-600 hover:bg-sky-700 px-4 py-2 rounded-lg text-sm font-medium">Subscribe</button>
+            </div>
+        </div>
+
+        <div class="space-y-4 mb-8">
+            <h2 class="text-lg font-semibold">Send Client Event</h2>
+            <div class="flex gap-4">
+                <input id="eventName" type="text" value="client-typing" placeholder="Event name"
+                    class="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm flex-1">
+                <input id="eventData" type="text" value='{"user":"test"}' placeholder="Event data (JSON)"
+                    class="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm flex-1">
+                <button onclick="sendEvent()" class="bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded-lg text-sm font-medium">Send</button>
+            </div>
+        </div>
+
+        <div>
+            <h2 class="text-lg font-semibold mb-2">Log</h2>
+            <div id="log" class="bg-gray-900 border border-gray-800 rounded-lg p-4 h-80 overflow-y-auto font-mono text-xs space-y-1"></div>
+        </div>
+    </div>
+
+    <script>
+        let pusher = null;
+        let currentChannel = null;
+
+        function log(msg, type = 'info') {
+            const el = document.getElementById('log');
+            const colors = { info: 'text-gray-400', success: 'text-emerald-400', error: 'text-red-400', event: 'text-sky-400' };
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML += `<div class="${colors[type]}">[${time}] ${msg}</div>`;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function connect() {
+            const host = document.getElementById('host').value;
+            const port = document.getElementById('port').value;
+            const key = document.getElementById('key').value;
+
+            pusher = new Pusher(key, {
+                wsHost: host,
+                wsPort: parseInt(port),
+                forceTLS: false,
+                enabledTransports: ['ws'],
+                cluster: ''
+            });
+
+            pusher.connection.bind('connected', () => {
+                log('Connected! Socket ID: ' + pusher.connection.socket_id, 'success');
+            });
+
+            pusher.connection.bind('error', (err) => {
+                log('Connection error: ' + JSON.stringify(err), 'error');
+            });
+
+            pusher.connection.bind('disconnected', () => {
+                log('Disconnected', 'error');
+            });
+
+            log('Connecting to ' + host + ':' + port + '...');
+        }
+
+        function disconnect() {
+            if (pusher) {
+                pusher.disconnect();
+                pusher = null;
+                currentChannel = null;
+                log('Disconnected');
+            }
+        }
+
+        function subscribe() {
+            if (!pusher) { log('Not connected!', 'error'); return; }
+
+            const channelName = document.getElementById('channel').value;
+            currentChannel = pusher.subscribe(channelName);
+
+            currentChannel.bind('pusher:subscription_succeeded', () => {
+                log('Subscribed to: ' + channelName, 'success');
+            });
+
+            currentChannel.bind('pusher:subscription_error', (err) => {
+                log('Subscription error: ' + JSON.stringify(err), 'error');
+            });
+
+            currentChannel.bind_global((eventName, data) => {
+                if (!eventName.startsWith('pusher:') && !eventName.startsWith('pusher_internal:')) {
+                    log('Event: ' + eventName + ' | Data: ' + JSON.stringify(data), 'event');
+                }
+            });
+
+            log('Subscribing to: ' + channelName + '...');
+        }
+
+        function sendEvent() {
+            if (!currentChannel) { log('Not subscribed to a channel!', 'error'); return; }
+
+            const name = document.getElementById('eventName').value;
+            const data = JSON.parse(document.getElementById('eventData').value);
+
+            currentChannel.trigger(name, data);
+            log('Sent: ' + name + ' | ' + JSON.stringify(data), 'success');
+        }
+    </script>
+</body>
+</html>

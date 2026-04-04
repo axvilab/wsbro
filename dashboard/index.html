@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WSBro Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%2310b981'/><stop offset='100%25' stop-color='%230ea5e9'/></linearGradient></defs><rect width='32' height='32' rx='8' fill='%23111827'/><path d='M6 20 L10 10 L14 18 L18 8 L22 18 L26 10' stroke='url(%23g)' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="dashboard()" x-init="init()">
+
+    <!-- Header -->
+    <header class="border-b border-gray-800 bg-gray-900/50 backdrop-blur">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <h1 class="text-xl font-bold tracking-tight">WSBro</h1>
+                <span class="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-medium">Dashboard</span>
+                <span class="text-xs bg-gray-700/50 text-gray-400 px-2 py-0.5 rounded-full font-medium" x-text="version" x-show="version"></span>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="text-xs px-2.5 py-1 rounded-full font-medium"
+                    :class="{
+                        'bg-emerald-500/10 text-emerald-400': adapter === 'memory',
+                        'bg-red-500/10 text-red-400': adapter === 'redis',
+                        'bg-violet-500/10 text-violet-400': adapter === 'nats'
+                    }"
+                    x-text="adapter"></span>
+                <span class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
+                    :class="connected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'">
+                    <span class="w-1.5 h-1.5 rounded-full animate-pulse" :class="connected ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                    <span x-text="connected ? 'Live' : 'Offline'"></span>
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 flex items-start gap-4">
+                <div class="p-2.5 rounded-lg bg-emerald-500/10">
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-400 mb-1">Connections</div>
+                    <div class="text-3xl font-bold text-white" x-text="metrics.connections">0</div>
+                    <div class="text-xs text-gray-500 mt-1">Peak: <span x-text="metrics.peak_connections">0</span></div>
+                </div>
+            </div>
+            <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 flex items-start gap-4">
+                <div class="p-2.5 rounded-lg bg-sky-500/10">
+                    <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/></svg>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-400 mb-1">Channels</div>
+                    <div class="text-3xl font-bold text-white" x-text="metrics.channels">0</div>
+                </div>
+            </div>
+            <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 flex items-start gap-4">
+                <div class="p-2.5 rounded-lg bg-amber-500/10">
+                    <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-400 mb-1">Total Events</div>
+                    <div class="text-3xl font-bold text-white" x-text="metrics.total_events">0</div>
+                </div>
+            </div>
+            <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 flex items-start gap-4">
+                <div class="p-2.5 rounded-lg bg-purple-500/10">
+                    <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-400 mb-1">Total Messages</div>
+                    <div class="text-3xl font-bold text-white" x-text="metrics.total_messages">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-8">
+            <h2 class="text-sm font-medium text-gray-400 mb-4">Connections Over Time</h2>
+            <canvas id="connectionsChart" height="80"></canvas>
+        </div>
+
+        <!-- Channels Table -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800">
+            <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+                <h2 class="text-sm font-medium text-gray-400">Active Channels</h2>
+                <div class="flex items-center gap-3">
+                    <input type="text" x-model="search" placeholder="Search channels..."
+                        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-gray-600 w-48">
+                    <div class="flex gap-1">
+                        <button @click="filterType = ''" class="text-xs px-2 py-1 rounded"
+                            :class="filterType === '' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'">All</button>
+                        <button @click="filterType = 'public'" class="text-xs px-2 py-1 rounded"
+                            :class="filterType === 'public' ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-gray-300'">Public</button>
+                        <button @click="filterType = 'private'" class="text-xs px-2 py-1 rounded"
+                            :class="filterType === 'private' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'">Private</button>
+                        <button @click="filterType = 'presence'" class="text-xs px-2 py-1 rounded"
+                            :class="filterType === 'presence' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-gray-300'">Presence</button>
+                    </div>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 border-b border-gray-800">
+                            <th class="px-5 py-3 font-medium">Channel</th>
+                            <th class="px-5 py-3 font-medium">Type</th>
+                            <th class="px-5 py-3 font-medium text-right">Subscribers</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="ch in paginatedChannels" :key="ch.name">
+                            <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+                                <td class="px-5 py-3 font-mono text-xs" x-text="ch.name"></td>
+                                <td class="px-5 py-3">
+                                    <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                        :class="{
+                                            'bg-blue-500/10 text-blue-400': ch.type === 'public',
+                                            'bg-amber-500/10 text-amber-400': ch.type === 'private',
+                                            'bg-purple-500/10 text-purple-400': ch.type === 'presence'
+                                        }"
+                                        x-text="ch.type"></span>
+                                </td>
+                                <td class="px-5 py-3 text-right tabular-nums" x-text="ch.subscribers"></td>
+                            </tr>
+                        </template>
+                        <tr x-show="filteredChannels.length === 0">
+                            <td colspan="3" class="px-5 py-8 text-center text-gray-600">No active channels</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <!-- Pagination -->
+            <div class="px-5 py-3 border-t border-gray-800 flex items-center justify-between text-xs text-gray-500" x-show="filteredChannels.length > 0">
+                <div class="flex items-center gap-3">
+                    <span x-text="'Showing ' + ((page-1)*perPage+1) + '-' + Math.min(page*perPage, filteredChannels.length) + ' of ' + filteredChannels.length"></span>
+                    <select x-model.number="perPage" @change="page = 1"
+                        class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                    <span>per page</span>
+                </div>
+                <div class="flex gap-1">
+                    <button @click="page = Math.max(1, page-1)" :disabled="page === 1"
+                        class="px-3 py-1.5 rounded-lg hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed text-sm">&larr; Prev</button>
+                    <template x-for="p in totalPages" :key="p">
+                        <button @click="page = p" class="px-3 py-1.5 rounded-lg text-sm"
+                            :class="p === page ? 'bg-gray-700 text-white' : 'hover:bg-gray-800'"
+                            x-text="p"></button>
+                    </template>
+                    <button @click="page = Math.min(totalPages, page+1)" :disabled="page === totalPages"
+                        class="px-3 py-1.5 rounded-lg hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed text-sm">Next &rarr;</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function dashboard() {
+            let chart = null;
+            const maxPoints = 60;
+            const labels = [];
+            const data = [];
+
+            return {
+                connected: false,
+                version: '',
+                adapter: 'memory',
+                search: '',
+                filterType: '',
+                page: 1,
+                perPage: 15,
+                metrics: {
+                    connections: 0,
+                    peak_connections: 0,
+                    channels: 0,
+                    total_events: 0,
+                    total_messages: 0
+                },
+                channels: [],
+
+                get filteredChannels() {
+                    return this.channels.filter(ch => {
+                        const matchSearch = !this.search || ch.name.toLowerCase().includes(this.search.toLowerCase());
+                        const matchType = !this.filterType || ch.type === this.filterType;
+                        return matchSearch && matchType;
+                    });
+                },
+
+                get totalPages() {
+                    return Math.max(1, Math.ceil(this.filteredChannels.length / this.perPage));
+                },
+
+                get paginatedChannels() {
+                    const start = (this.page - 1) * this.perPage;
+                    return this.filteredChannels.slice(start, start + this.perPage);
+                },
+
+                async init() {
+                    this.$nextTick(() => {
+                        this.initChart();
+                        this.fetchData();
+                        setInterval(() => this.fetchData(), 2000);
+                    });
+                },
+
+                initChart() {
+                    if (chart) chart.destroy();
+                    const ctx = document.getElementById('connectionsChart').getContext('2d');
+                    chart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Connections',
+                                data: data,
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: true,
+                                tension: 0.3,
+                                pointRadius: 0,
+                                borderWidth: 2
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: {
+                                    display: true,
+                                    grid: { color: 'rgba(255,255,255,0.05)' },
+                                    ticks: { color: '#6b7280', maxTicksLimit: 10 }
+                                },
+                                y: {
+                                    display: true,
+                                    beginAtZero: true,
+                                    grid: { color: 'rgba(255,255,255,0.05)' },
+                                    ticks: { color: '#6b7280', stepSize: 1 }
+                                }
+                            }
+                        }
+                    });
+                },
+
+                async fetchData() {
+                    try {
+                        const [metricsRes, channelsRes] = await Promise.all([
+                            fetch('/metrics'),
+                            fetch('/dashboard/api/channels')
+                        ]);
+
+                        this.metrics = await metricsRes.json();
+                        if (this.metrics.version) this.version = this.metrics.version;
+                        const channelsData = await channelsRes.json();
+
+                        this.channels = Object.entries(channelsData.channels || {}).map(([name, info]) => ({
+                            name,
+                            type: name.startsWith('presence-') ? 'presence' : name.startsWith('private-') ? 'private' : 'public',
+                            subscribers: info.subscription_count
+                        })).sort((a, b) => b.subscribers - a.subscribers);
+
+                        // Update chart
+                        const now = new Date().toLocaleTimeString();
+                        labels.push(now);
+                        data.push(this.metrics.connections);
+
+                        if (labels.length > maxPoints) {
+                            labels.shift();
+                            data.shift();
+                        }
+
+                        chart.update('none');
+                        this.connected = true;
+                    } catch (e) {
+                        this.connected = false;
+                    }
+                }
+            };
+        }
+    </script>
+</body>
+</html>

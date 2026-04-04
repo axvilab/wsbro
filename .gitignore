@@ -4,3 +4,5 @@ wsbro
 .DS_Store
 .claude/
 CLAUDE.md
+TODO.md
+.playwright-mcp/

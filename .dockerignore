@@ -1,0 +1,9 @@
+.git
+.github
+.idea
+.claude
+.playwright-mcp
+*.md
+!README.md
+Dockerfile
+docker-compose.yml

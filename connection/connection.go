@@ -1,17 +1,20 @@
 package connection
 
 import (
+	"context"
 	"sync"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 )
 
+// Connection wraps a WebSocket conn with a mutex for safe concurrent writes.
 type Connection struct {
 	ID   string
 	Conn *websocket.Conn
 	mu   sync.Mutex
 }
 
+// New creates a Connection with the given Pusher socket ID.
 func New(id string, conn *websocket.Conn) *Connection {
 	return &Connection{
 		ID:   id,
@@ -19,8 +22,9 @@ func New(id string, conn *websocket.Conn) *Connection {
 	}
 }
 
-func (c *Connection) Send(message []byte) error {
+// Send writes a text message to the WebSocket, serializing concurrent writes via mutex.
+func (c *Connection) Send(ctx context.Context, message []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.Conn.WriteMessage(websocket.TextMessage, message)
+	return c.Conn.Write(ctx, websocket.MessageText, message)
 }
