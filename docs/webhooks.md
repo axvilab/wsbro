@@ -1,130 +1,62 @@
 # Webhooks
 
-WSBro can notify your backend about connection and channel events via HTTP POST requests.
+WSBro tells your backend when channels become occupied or empty and when users join or leave presence
+channels. Webhooks use the [Pusher format](https://pusher.com/docs/channels/server_api/webhooks/), so
+the official SDKs can verify them.
 
 ## Setup
 
-Global webhook URL (for all apps):
+Per app (recommended):
 
 ```bash
-WSBRO_WEBHOOK_URL=https://your-app.com/wsbro/webhook
+WSBRO_APPS='[{"id":"shop","key":"shop-key","secret":"shop-secret","webhook_url":"https://shop.example.com/wsbro/webhook"}]'
 ```
 
-Per-app webhook URL (overrides global):
+Or for every app without its own URL:
 
 ```bash
-WSBRO_APPS='[{"id":"app-1","key":"key-1","secret":"secret-1","webhook_url":"https://app1.com/webhook"}]'
+WSBRO_WEBHOOK_URL=https://example.com/wsbro/webhook
 ```
-
-If neither is set, no webhooks are sent. App-level URL takes priority over global.
 
 ## Events
 
-### connection_established
+| Event | When | Fields |
+|---|---|---|
+| `channel_occupied` | the first connection subscribes | `channel` |
+| `channel_vacated` | the last connection leaves | `channel` |
+| `member_added` | a user joins a presence channel (first connection of that user) | `channel`, `user_id` |
+| `member_removed` | a user leaves a presence channel (last connection of that user) | `channel`, `user_id` |
 
-Fired when a client connects.
+## Request
 
-```json
-{
-  "event": "connection_established",
-  "socket_id": "123.456",
-  "timestamp": 1712250000
-}
+```http
+POST /wsbro/webhook
+Content-Type: application/json
+X-Pusher-Key: shop-key
+X-Pusher-Signature: 3c1a…  (hex HMAC-SHA256 of the body with the app secret)
+
+{"time_ms": 1793565664010, "events": [{"name": "member_added", "channel": "presence-chat", "user_id": "42"}]}
 ```
 
-### connection_closed
-
-Fired when a client disconnects.
-
-```json
-{
-  "event": "connection_closed",
-  "socket_id": "123.456",
-  "timestamp": 1712250000
-}
-```
-
-### channel_occupied
-
-Fired when the first client subscribes to a channel (channel becomes active).
-
-```json
-{
-  "event": "channel_occupied",
-  "channel": "orders",
-  "timestamp": 1712250000
-}
-```
-
-### channel_vacated
-
-Fired when the last client unsubscribes from a channel (channel becomes empty).
-
-```json
-{
-  "event": "channel_vacated",
-  "channel": "orders",
-  "timestamp": 1712250000
-}
-```
-
-### member_added
-
-Fired when a user joins a presence channel.
-
-```json
-{
-  "event": "member_added",
-  "channel": "presence-chat",
-  "socket_id": "123.456",
-  "data": {
-    "user_id": "1",
-    "user_info": {"name": "Alice"}
-  },
-  "timestamp": 1712250000
-}
-```
-
-### member_removed
-
-Fired when a user leaves a presence channel.
-
-```json
-{
-  "event": "member_removed",
-  "channel": "presence-chat",
-  "socket_id": "123.456",
-  "data": {
-    "user_id": "1",
-    "user_info": {"name": "Alice"}
-  },
-  "timestamp": 1712250000
-}
-```
-
-## Laravel Example
+## Verifying in Laravel
 
 ```php
-// routes/web.php
-Route::post('/wsbro/webhook', function (Request $request) {
-    $event = $request->input('event');
-    $socketId = $request->input('socket_id');
+$webhook = Broadcast::connection()->getPusher()->webhook(
+    ['X-Pusher-Key' => $request->header('X-Pusher-Key'), 'X-Pusher-Signature' => $request->header('X-Pusher-Signature')],
+    $request->getContent(),
+);
 
-    match ($event) {
-        'connection_established' => Log::info("Client connected: $socketId"),
-        'connection_closed' => Log::info("Client disconnected: $socketId"),
-        'channel_occupied' => Log::info("Channel active: " . $request->input('channel')),
-        'channel_vacated' => Log::info("Channel empty: " . $request->input('channel')),
-        'member_added' => Log::info("Member joined: " . $request->input('data.user_id')),
-        'member_removed' => Log::info("Member left: " . $request->input('data.user_id')),
-    };
-
-    return response()->json(['ok' => true]);
-});
+foreach ($webhook->get_events() as $event) {
+    // $event->name, $event->channel, $event->user_id
+}
 ```
 
-## Notes
+This exact code runs in the [end-to-end tests](../examples/laravel/files/app/Http/Controllers/WebhookController.php).
 
-- Webhooks are sent asynchronously — they don't block WebSocket operations.
-- Timeout is 5 seconds per request.
-- Failed deliveries are logged but not retried. For reliability, consider using a queue in your backend.
+## Delivery
+
+- Webhooks of one app are sent one at a time, in order, with a 5 second timeout.
+- A response with status 2xx counts as delivered. Failures are logged and not retried.
+- When the backend is slow and 1000 webhooks are waiting, new ones are dropped with a warning,
+  so a slow backend can never slow down WebSocket traffic.
+- With several WSBro instances, each instance reports the channels of its own connections.

@@ -1,8 +1,15 @@
-wsbro
+# Build output
+/wsbro
+/wsbro-bench
+/dist/
 *.exe
+*.out
+coverage.*
+
+# Dependencies
+node_modules/
+
+# Editors and local tooling
 .idea/
+.vscode/
 .DS_Store
-.claude/
-CLAUDE.md
-TODO.md
-.playwright-mcp/

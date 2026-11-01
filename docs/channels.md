@@ -1,155 +1,81 @@
 # Channels
 
-WSBro supports three types of channels, following the Pusher protocol.
+Channel type is decided by the name prefix, as on Pusher.
 
-## Public Channels
+| Prefix | Type | Who can subscribe |
+|---|---|---|
+| *(none)* | public | anyone with the app key |
+| `private-` | private | clients with a token signed by your backend |
+| `private-encrypted-` | encrypted | as private; payloads are end-to-end encrypted by your backend |
+| `presence-` | presence | as private, plus the member list is shared |
+| `cache-`, `private-cache-`, `presence-cache-` | cache | as the type above; the last event is replayed to new subscribers |
 
-Any client can subscribe without authentication.
+Channel names may contain letters, digits and `_ - = @ , . ; :`, up to 200 characters.
+Laravel's `App.Models.User.1` style works as is.
 
-```javascript
-const channel = pusher.subscribe('orders');
+## Public
 
-channel.bind('order.created', (data) => {
-    console.log('New order:', data);
-});
+```js
+Echo.channel('orders').listen('.order.shipped', (e) => console.log(e));
 ```
 
-**Use cases:** public feeds, live scores, stock tickers, notifications visible to everyone.
+## Private
 
-## Private Channels
+The client asks your backend for a signature (Laravel: `/broadcasting/auth`, which runs your
+`routes/channels.php`), then sends it to WSBro. WSBro checks it with the app secret:
 
-Channel name must start with `private-`. Requires authentication — the client must obtain an auth signature from your backend before subscribing.
-
-```javascript
-const channel = pusher.subscribe('private-user-42');
-
-channel.bind('message', (data) => {
-    console.log('Private message:', data);
-});
+```
+auth = app_key + ":" + HMAC_SHA256(secret, socket_id + ":" + channel_name)
 ```
 
-### How authentication works
+A wrong or missing signature returns error `4009` and the subscription is refused.
 
-1. Client connects to WSBro, receives `socket_id`
-2. Client asks to subscribe to `private-user-42`
-3. `pusher-js` sends a POST request to your backend (`/broadcasting/auth` in Laravel)
-4. Your backend verifies the user has access to this channel
-5. Your backend generates HMAC signature: `app_key:HMAC-SHA256(app_secret, "socket_id:channel_name")`
-6. Client sends the signature to WSBro
-7. WSBro verifies the signature and grants access
+## Presence
 
-In Laravel, this is handled automatically by the `BroadcastServiceProvider` and channel authorization in `routes/channels.php`:
-
-```php
-Broadcast::channel('user-{id}', function ($user, $id) {
-    return $user->id === (int) $id;
-});
-```
-
-## Presence Channels
-
-Channel name must start with `presence-`. Like private channels but with member tracking — every subscriber knows who else is in the channel.
-
-```javascript
-const channel = pusher.subscribe('presence-chat-room');
-
-// Current members when you join
-channel.bind('pusher:subscription_succeeded', (members) => {
-    console.log('Members:', members.count);
-    members.each((member) => {
-        console.log(member.id, member.info);
-    });
-});
-
-// Someone joins
-channel.bind('pusher:member_added', (member) => {
-    console.log('Joined:', member.info.name);
-});
-
-// Someone leaves
-channel.bind('pusher:member_removed', (member) => {
-    console.log('Left:', member.info.name);
-});
-```
-
-In Laravel, return user data from the channel authorization:
-
-```php
-Broadcast::channel('chat-room', function ($user) {
-    return ['id' => $user->id, 'name' => $user->name];
-});
-```
-
-**Use cases:** chat rooms, collaborative editing, "who's online" indicators.
-
-**Requirements:**
-- `channel_data` is required and must include `user_id`
-- `user_id` must be a string (even if numeric in your database)
-
-## Client Events (Whisper)
-
-Clients can send events directly to other clients without going through your backend. Event names must start with `client-`. Only works on private and presence channels.
-
-```javascript
-// Send
-channel.trigger('client-typing', { user: 'Alice' });
-
-// Receive (other clients)
-channel.bind('client-typing', (data) => {
-    console.log(data.user + ' is typing...');
-});
-```
-
-In Laravel Echo:
-
-```javascript
-channel.whisper('typing', { user: 'Alice' });
-
-channel.listenForWhisper('typing', (data) => {
-    console.log(data.user + ' is typing...');
-});
-```
-
-**Use cases:** typing indicators, cursor positions, drawing on shared canvas.
-
-## Broadcasting Events from Backend
-
-Your backend sends events to channels via HTTP API:
-
-```bash
-POST /apps/{app_id}/events
-
-{
-  "name": "order.created",
-  "channel": "orders",
-  "data": "{\"id\": 1, \"total\": 99.99}"
-}
-```
-
-Send to multiple channels at once:
+Like private channels, but the signed `channel_data` carries the user:
 
 ```json
-{
-  "name": "notification",
-  "channels": ["orders", "admin"],
-  "data": "{\"message\": \"New order!\"}"
-}
+{"user_id": "42", "user_info": {"name": "Ann"}}
 ```
 
-Exclude the sender (so they don't receive their own event):
+`user_id` may be a string or a number. On subscribe, the client receives every member. Others receive
+`member_added` when a user arrives and `member_removed` when the user's **last** connection leaves:
+a user with three open tabs is one member, and closing one tab does not make them "leave".
 
-```json
-{
-  "name": "message.sent",
-  "channel": "private-chat",
-  "data": "{\"text\": \"Hello\"}",
-  "socket_id": "123.456"
-}
+```js
+Echo.join('chat')
+    .here((users) => {})
+    .joining((user) => {})
+    .leaving((user) => {});
 ```
 
-In Laravel, this happens automatically when you call `broadcast()`:
+## Client events (whisper)
 
-```php
-broadcast(new OrderCreated($order));
-broadcast(new OrderCreated($order))->toOthers(); // excludes sender
+Clients may send `client-*` events to other subscribers, without going through your backend:
+
+```js
+Echo.private('chat').whisper('typing', { name: 'Ann' });
 ```
+
+Rules, as on Pusher:
+
+- only on private and presence channels;
+- the sender must be subscribed to the channel;
+- the sender does not receive its own event;
+- on presence channels the event carries the sender's `user_id`;
+- the rate limit (`WSBRO_MAX_MESSAGES_PER_SECOND`) applies.
+
+## Cache channels
+
+A cache channel remembers its last event for 30 minutes. A new subscriber receives it right after
+subscribing, or `pusher:cache_miss` when there is none. Useful for "current state" channels, such as
+prices or a build status, where a late client should not wait for the next update.
+
+## User channels
+
+After `pusher:signin`, a connection is bound to a user ID. The server can then:
+
+- send an event to every connection of that user: `$pusher->sendToUser($userId, 'event', $data)`;
+- disconnect the user everywhere: `$pusher->terminateUserConnections($userId)`.
+
+Internally this uses the `#server-to-user-{id}` channel, which clients cannot subscribe to directly.

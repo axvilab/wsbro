@@ -1,49 +1,46 @@
-# Contributing to WSBro
+# Contributing
 
-Thanks for your interest in contributing!
+Thanks for helping! Bug reports, ideas and pull requests are welcome.
 
-## Getting Started
+## Development
 
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/your-username/wsbro.git`
-3. Create a branch: `git checkout -b feature/your-feature`
-4. Make your changes
-5. Run tests: `go test ./server/ -v`
-6. Commit: `git commit -m "Add your feature"`
-7. Push: `git push origin feature/your-feature`
-8. Open a Pull Request
-
-## Development Setup
+You need Go 1.26+ and Docker (for the integration and end-to-end tests).
 
 ```bash
-go run .
+make run    # server on :6001, dashboard on /dashboard (password: secret)
+make test   # unit tests with the race detector
+make lint   # gofmt, vet, staticcheck, govulncheck
 ```
 
-Server starts on `http://localhost:6001`. Dashboard at `http://localhost:6001/dashboard`.
-
-## Running Tests
+Before opening a pull request for protocol changes, also run:
 
 ```bash
-go test ./server/ -v
+make test-integration                     # Redis and NATS adapters against real servers
+make e2e                                  # Laravel 13 + laravel-echo, reverb broadcaster
+LARAVEL=12 BROADCASTER=pusher make e2e    # other combinations
 ```
 
-## Code Style
+## Project layout
 
-- Follow standard Go conventions (`gofmt`, `go vet`)
-- Keep functions small and focused
-- Add tests for new features
-- Use `zerolog` for logging, not `fmt.Println`
+```
+main.go                 configuration, logging, startup and graceful shutdown
+internal/config         environment variables and validation
+internal/server         Pusher protocol, HTTP API, webhooks, metrics, dashboard API
+internal/channel        subscribers and presence members of one channel
+internal/connection     one WebSocket with its send queue
+internal/adapter        Redis and NATS relays between instances
+dashboard/              the embedded dashboard (Preact + htm, no build step)
+cmd/wsbro-bench         load generator
+examples/laravel        Laravel end-to-end test suite
+```
 
-## Reporting Issues
+## Guidelines
 
-- Use GitHub Issues
-- Include steps to reproduce
-- Include Go version (`go version`)
-- Include relevant logs
+- Keep it simple: readable code beats clever code, and a new dependency needs a strong reason.
+- Behaviour must match Pusher. Link the relevant part of the Pusher docs in a comment when it is not obvious.
+- Every bug fix comes with a test that fails without it.
+- Run `gofmt`; CI rejects unformatted code.
 
-## Pull Requests
+## Reporting security issues
 
-- Keep PRs focused on a single change
-- Update documentation if needed
-- Add tests for new functionality
-- Make sure all existing tests pass
+Please do not open public issues for vulnerabilities, see [SECURITY.md](SECURITY.md).

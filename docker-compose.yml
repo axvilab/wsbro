@@ -1,21 +1,19 @@
+# Local WSBro with the dashboard: http://localhost:6001/dashboard (password: secret)
 services:
   wsbro:
     build: .
     ports:
       - "6001:6001"
     environment:
-      WSBRO_PORT: "6001"
-      WSBRO_APP_ID: "app-id"
-      WSBRO_APP_KEY: "app-key"
-      WSBRO_APP_SECRET: "app-secret"
-      WSBRO_DASHBOARD_PASSWORD: ""
+      WSBRO_APP_ID: app-id
+      WSBRO_APP_KEY: app-key
+      WSBRO_APP_SECRET: app-secret
+      WSBRO_DASHBOARD_PASSWORD: secret
+      # Uncomment to run several instances behind a load balancer:
+      # WSBRO_ADAPTER: redis
+      # WSBRO_REDIS_ADDR: redis:6379
     restart: unless-stopped
 
-  # Uncomment for Redis adapter
-  # wsbro:
-  #   environment:
-  #     WSBRO_ADAPTER: "redis"
-  #     WSBRO_REDIS_ADDR: "redis:6379"
   # redis:
   #   image: redis:7-alpine
   #   restart: unless-stopped

@@ -1,0 +1,13 @@
+{
+  "name": "wsbro-laravel-e2e",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end tests: Laravel 13 + laravel-echo + pusher-js against WSBro",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "laravel-echo": "^2.2.0",
+    "pusher-js": "^8.4.0"
+  }
+}

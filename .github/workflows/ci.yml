@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", ".github/assets/**"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", ".github/assets/**"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+      nats:
+        image: nats:2-alpine
+        ports: ["4222:4222"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Format
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        env:
+          WSBRO_TEST_REDIS_ADDR: localhost:6379
+          WSBRO_TEST_NATS_URL: nats://localhost:4222
+        run: go test -race -count=1 -coverprofile=coverage.out -coverpkg=./internal/... ./...
+
+      - name: Coverage
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+
+      - name: Vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

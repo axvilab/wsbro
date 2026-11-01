@@ -1,258 +1,160 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/axvilab/wsbro/main/logo.svg" width="120" alt="WSBro">
-</p>
-
-<h1 align="center">WSBro</h1>
-
-<p align="center">
-  Lightweight, Pusher-compatible WebSocket server built in Go.
-  <br>
-  <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#usage-with-laravel">Laravel Integration</a> &middot;
-  <a href="#dashboard">Dashboard</a> &middot;
-  <a href="#configuration">Configuration</a>
+  <img src=".github/assets/banner.svg" alt="WSBro: Pusher-compatible WebSocket server for Laravel" width="100%">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/license/axvilab/wsbro" alt="License">
-  <img src="https://img.shields.io/github/go-mod/go-version/axvilab/wsbro" alt="Go Version">
+  <a href="https://github.com/axvilab/wsbro/actions/workflows/ci.yml"><img src="https://github.com/axvilab/wsbro/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/axvilab/wsbro/actions/workflows/e2e.yml"><img src="https://github.com/axvilab/wsbro/actions/workflows/e2e.yml/badge.svg" alt="Laravel E2E"></a>
+  <a href="https://github.com/axvilab/wsbro/releases"><img src="https://img.shields.io/github/v/release/axvilab/wsbro?sort=semver" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/axvilab/wsbro" alt="MIT License"></a>
+</p>
+
+<p align="center">
+  <b>Real-time for Laravel without Pusher bills or a PHP process to babysit.</b><br>
+  One 20 MB binary that speaks the Pusher protocol. Point Laravel at it and broadcasting just works.
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="docs/laravel.md">Laravel guide</a> ·
+  <a href="#dashboard">Dashboard</a> ·
+  <a href="docs/benchmarks.md">Benchmarks</a> ·
+  <a href="#documentation">Docs</a>
 </p>
 
 ---
 
-## Why WSBro?
+## Why WSBro
 
-WSBro is a self-hosted WebSocket server that speaks the Pusher protocol. If your app already uses Pusher, Laravel Echo, or any Pusher-compatible SDK — just point it to WSBro and everything works. No code changes required.
+- **Drop-in for Reverb and Pusher.** Laravel's own `reverb` and `pusher` broadcasters, Laravel Echo and
+  every Pusher SDK work unchanged. No package to install, no code to change.
+- **One binary, nothing else.** No PHP worker, no Node.js, no database. `docker run` and you are live.
+- **Fast and frugal.** 100,000 concurrent connections in 3.3 GB of RAM; 160,000 messages per second
+  with a p99 latency of 3 ms on one instance. [Benchmarks](docs/benchmarks.md)
+- **A dashboard you will actually use.** Live debug console, presence members, test events,
+  connections you can disconnect. Built in, works offline.
+- **Proven, not promised.** Every change runs a real Laravel 12 and 13 app with laravel-echo and
+  pusher-js through WSBro, on both broadcasters.
 
-**What makes it different:**
+## Quick start
 
-- **Single binary** — no Node.js, no PHP, no runtime dependencies. Download, run, done.
-- **Built for Go** — goroutines handle thousands of concurrent connections with minimal memory.
-- **Dashboard included** — real-time monitoring out of the box, no extra setup.
-- **Easy to deploy** — one binary or one Docker image on your VPS and you're live.
+```bash
+docker run -d --name wsbro -p 6001:6001 \
+  -e WSBRO_APP_ID=my-app \
+  -e WSBRO_APP_KEY=my-key \
+  -e WSBRO_APP_SECRET=my-secret \
+  -e WSBRO_DASHBOARD_PASSWORD=change-me \
+  ghcr.io/axvilab/wsbro
+```
+
+Or without Docker: download a binary from [Releases](https://github.com/axvilab/wsbro/releases), or
+`go install github.com/axvilab/wsbro@latest`.
+
+The dashboard is at <http://localhost:6001/dashboard>.
+
+## Use it with Laravel
+
+Already on Reverb? Keep your code and your `.env`, just stop running `php artisan reverb:start` and point
+`REVERB_HOST` / `REVERB_PORT` at WSBro:
+
+```env
+BROADCAST_CONNECTION=reverb
+
+REVERB_APP_ID=my-app
+REVERB_APP_KEY=my-key
+REVERB_APP_SECRET=my-secret
+REVERB_HOST=127.0.0.1
+REVERB_PORT=6001
+REVERB_SCHEME=http
+```
+
+Everything works as with Reverb or Pusher:
+
+```php
+broadcast(new OrderShipped($order))->toOthers();
+```
+
+```js
+Echo.private(`App.Models.User.${userId}`).listen('.order.shipped', (e) => { /* ... */ });
+
+Echo.join('chat')
+    .here((users) => {})
+    .joining((user) => {})
+    .leaving((user) => {})
+    .listenForWhisper('typing', (e) => {});
+```
+
+Prefer the Pusher broadcaster, or setting up from scratch? See the [Laravel guide](docs/laravel.md).
 
 ## Features
 
-- **Pusher Protocol 7** compatible (`pusher-js`, `laravel-echo`, all Pusher SDKs)
-- Public, Private & Presence channels
-- Client events (whisper)
-- Batch event broadcasting
-- HMAC request authentication
-- Rate limiting (per connection)
-- Max connections limit
-- Webhooks (per app or global)
-- Horizontal scaling via Redis or NATS adapters
-- Built-in real-time dashboard with auth
-- JSON and Prometheus metrics endpoints
-- Automatic empty channel cleanup
-- Graceful shutdown
-- Security: crypto/rand socket IDs, message size limits, channel limits per connection
-- Configuration via environment variables
-
-## Quick Start
-
-### Binary
-
-```bash
-go install github.com/axvilab/wsbro@latest
-wsbro
-```
-
-### Docker
-
-```bash
-docker run -p 6001:6001 axvi/wsbro
-```
-
-### Docker Compose
-
-```bash
-git clone https://github.com/axvilab/wsbro.git
-cd wsbro
-docker compose up
-```
-
-Server starts on `http://localhost:6001`
-Dashboard at `http://localhost:6001/dashboard`
-
-## Usage with Laravel
-
-Update your `.env`:
-
-```env
-BROADCAST_DRIVER=pusher
-PUSHER_APP_ID=app-id
-PUSHER_APP_KEY=app-key
-PUSHER_APP_SECRET=app-secret
-PUSHER_HOST=localhost
-PUSHER_PORT=6001
-PUSHER_SCHEME=http
-```
-
-Update `config/broadcasting.php`:
-
-```php
-'pusher' => [
-    'driver' => 'pusher',
-    'key' => env('PUSHER_APP_KEY'),
-    'secret' => env('PUSHER_APP_SECRET'),
-    'app_id' => env('PUSHER_APP_ID'),
-    'options' => [
-        'host' => env('PUSHER_HOST', '127.0.0.1'),
-        'port' => env('PUSHER_PORT', 6001),
-        'scheme' => env('PUSHER_SCHEME', 'http'),
-        'useTLS' => false,
-    ],
-],
-```
-
-Frontend with Laravel Echo:
-
-```javascript
-import Echo from 'laravel-echo';
-import Pusher from 'pusher-js';
-
-window.Pusher = Pusher;
-
-window.Echo = new Echo({
-    broadcaster: 'pusher',
-    key: import.meta.env.VITE_PUSHER_APP_KEY,
-    wsHost: import.meta.env.VITE_PUSHER_HOST,
-    wsPort: import.meta.env.VITE_PUSHER_PORT,
-    forceTLS: false,
-    enabledTransports: ['ws'],
-    cluster: '',
-});
-```
-
-## Configuration
-
-All configuration is done via environment variables.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WSBRO_PORT` | `6001` | Server port |
-| `WSBRO_APP_ID` | `app-id` | Application ID |
-| `WSBRO_APP_KEY` | `app-key` | Application key |
-| `WSBRO_APP_SECRET` | `app-secret` | Application secret |
-| `WSBRO_APPS` | — | Multiple apps as JSON array |
-| `WSBRO_ADAPTER` | `memory` | Adapter: `memory`, `redis`, `nats` |
-| `WSBRO_REDIS_ADDR` | `localhost:6379` | Redis address |
-| `WSBRO_REDIS_PASSWORD` | — | Redis password |
-| `WSBRO_NATS_URL` | `nats://localhost:4222` | NATS URL |
-| `WSBRO_DASHBOARD_PASSWORD` | — | Dashboard password (empty = no auth) |
-| `WSBRO_MAX_MESSAGES_PER_SECOND` | `100` | Rate limit per connection |
-| `WSBRO_MAX_CONNECTIONS` | `0` | Max connections (0 = unlimited) |
-| `WSBRO_WEBHOOK_URL` | — | Webhook URL for events |
-| `WSBRO_ALLOWED_ORIGINS` | `*` | CORS allowed origins |
-| `WSBRO_MAX_MESSAGE_SIZE` | `65536` | Max WebSocket message size (bytes) |
-| `WSBRO_MAX_CHANNELS_PER_CONN` | `100` | Max channel subscriptions per connection |
-| `WSBRO_MAX_EVENT_DATA_SIZE` | `10240` | Max HTTP event body size (bytes) |
-
-### Multiple Apps
-
-```bash
-WSBRO_APPS='[{"id":"app-1","key":"key-1","secret":"secret-1"},{"id":"app-2","key":"key-2","secret":"secret-2"}]'
-```
+| | |
+|---|---|
+| **Pusher protocol 7** | public, private, presence, encrypted and cache channels; client events (whisper); user authentication, `sendToUser` and terminate connections |
+| **Pusher HTTP API** | trigger, batch, channel info and presence users, signed exactly like Pusher (replay-safe `body_md5` check) |
+| **Webhooks** | `channel_occupied`, `channel_vacated`, `member_added`, `member_removed` in the Pusher format, verifiable with the official SDKs |
+| **Multi-app** | many apps on one server, fully isolated, each with its own limits, allowed origins and webhook |
+| **Protection** | connection, message rate, channel and payload limits; allowed origins; slow and dead clients dropped without affecting others |
+| **Scaling** | Redis or NATS to run several instances; graceful shutdown hands clients over |
+| **Observability** | dashboard with a live debug console, JSON and Prometheus metrics, JSON logs, health endpoint |
+| **Operations** | TLS, 20 MB multi-arch image running as non-root, systemd-friendly binary, strict configuration validation |
 
 ## Dashboard
 
-Built-in real-time dashboard with:
+<p align="center">
+  <img src=".github/assets/dashboard-overview.png" alt="WSBro dashboard overview" width="100%">
+</p>
 
-- Live connection and channel metrics
-- Connection history graph
-- Active channels with search, type filtering, and pagination
-- Password protection
+<table>
+  <tr>
+    <td width="50%"><img src=".github/assets/dashboard-channel.png" alt="Channel with presence members and test event form"></td>
+    <td width="50%"><img src=".github/assets/dashboard-console.png" alt="Live debug console"></td>
+  </tr>
+  <tr>
+    <td align="center">Presence members, live activity and test events per channel</td>
+    <td align="center">Debug console: every connection, subscription and event, live</td>
+  </tr>
+</table>
 
-Access at `http://localhost:6001/dashboard`
+Enable it with `WSBRO_DASHBOARD_PASSWORD`. [More about the dashboard](docs/dashboard.md).
 
-## API
+## How it compares
 
-### Broadcast Event
+| | **WSBro** | Laravel Reverb | Soketi | Sockudo |
+|---|---|---|---|---|
+| Runs as | single Go binary | PHP process (`artisan reverb:start`) | Node.js | single Rust binary |
+| Pusher protocol | ✅ | ✅ | ✅ | ✅ |
+| Works with Laravel's `reverb` broadcaster | ✅ | ✅ | ✅ | ✅ |
+| Dashboard | built in, with live debug console | via Laravel Pulse cards | — | separate service |
+| Scaling | Redis, NATS | Redis | Redis, NATS, cluster | many brokers |
+| Focus | small, simple, Laravel-first | Laravel's official solution | general purpose | feature-rich platform |
 
-```
-POST /apps/{app_id}/events
-```
-
-```json
-{
-  "name": "order.created",
-  "channel": "orders",
-  "data": "{\"id\": 1}"
-}
-```
-
-### Batch Events
-
-```
-POST /apps/{app_id}/batch_events
-```
-
-```json
-{
-  "batch": [
-    {"name": "order.created", "channel": "orders", "data": "{\"id\": 1}"},
-    {"name": "notification", "channel": "admin", "data": "{\"text\": \"New order\"}"}
-  ]
-}
-```
-
-### Channel Info
-
-```
-GET /apps/{app_id}/channels
-GET /apps/{app_id}/channels?filter_by_prefix=private-
-GET /apps/{app_id}/channels/{channel_name}
-GET /apps/{app_id}/channels/{channel_name}/users
-```
-
-### Metrics
-
-```
-GET /metrics
-GET /metrics/prometheus
-```
-
-## Adapters
-
-| Adapter | Use Case |
-|---------|----------|
-| `memory` | Single instance (default) |
-| `redis` | Multi-instance with Redis pub/sub |
-| `nats` | Multi-instance with NATS |
-
-```bash
-# Redis
-WSBRO_ADAPTER=redis WSBRO_REDIS_ADDR=localhost:6379 wsbro
-
-# NATS
-WSBRO_ADAPTER=nats WSBRO_NATS_URL=nats://localhost:4222 wsbro
-```
-
-## Development
-
-```bash
-git clone https://github.com/axvilab/wsbro.git
-cd wsbro
-go run .
-```
-
-```bash
-# Run tests
-go test ./server/ -v
-
-# Build binary
-go build -o wsbro .
-```
+All of them are good projects. WSBro is for teams that want Reverb's compatibility without running PHP
+for WebSockets, and the smallest possible thing to deploy and understand.
 
 ## Documentation
 
-- [Channels Guide](docs/channels.md) — public, private, presence channels and client events
-- [API Reference](docs/api.md) — HTTP endpoints, WebSocket protocol, authentication
-- [Deployment](docs/deployment.md) — systemd, Docker, Nginx, Caddy, FrankenPHP
-- [Adapters](docs/adapters.md) — Memory, Redis, NATS setup and comparison
-- [Webhooks](docs/webhooks.md) — event notifications to your backend
+| | |
+|---|---|
+| [Laravel](docs/laravel.md) | Reverb drop-in, Pusher broadcaster, webhooks, troubleshooting |
+| [Configuration](docs/configuration.md) | every environment variable, multiple apps |
+| [Channels](docs/channels.md) | channel types, presence, client events, cache and user channels |
+| [Deployment](docs/deployment.md) | Docker, systemd, Nginx and Caddy with TLS, monitoring, production checklist |
+| [Scaling](docs/scaling.md) | one big instance, Redis and NATS, what is shared between instances |
+| [Webhooks](docs/webhooks.md) | events, format and signature verification |
+| [Dashboard](docs/dashboard.md) | pages and security |
+| [API](docs/api.md) | HTTP API, WebSocket protocol, error codes |
+| [Benchmarks](docs/benchmarks.md) | numbers and how to reproduce them |
+
+## Roadmap
+
+- Shared presence state across instances (exact `here()` lists and channel counts with Redis)
+- Ready-made Helm chart
+- Webhook retries with back-off
+- Subscription count events (`pusher:subscription_count`)
+
+Ideas and pull requests are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © AxViLab

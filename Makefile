@@ -1,64 +1,47 @@
-.PHONY: build test-up test-down test test-go test-api test-dusk rebuild clean logs
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X main.Version=$(VERSION)
 
-BINARY=wsbro
-VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-COMPOSE=docker compose -f examples/laravel/docker-compose.yml
+.PHONY: build run test test-integration lint e2e bench docker clean
 
-## Build
-
+## build: compile the wsbro binary
 build:
-	CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(BINARY) .
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o wsbro .
 
-## Test environment
+## run: start a local server with the dashboard enabled (password: secret)
+run:
+	WSBRO_DASHBOARD_PASSWORD=secret go run .
 
-test-up: build
-	$(COMPOSE) up --build -d
-	@echo ""
-	@echo "  WSBro:      http://localhost:6001"
-	@echo "  Dashboard:  http://localhost:6001/dashboard"
-	@echo "  Laravel:    http://localhost:8000"
-	@echo "  Chrome VNC: http://localhost:7900 (password: secret)"
-	@echo ""
+## test: unit and integration tests with the race detector
+test:
+	go test -race -count=1 ./...
 
-test-down:
-	$(COMPOSE) down
+## test-integration: also run the Redis and NATS adapter tests against real servers
+test-integration:
+	docker run -d --rm --name wsbro-test-redis -p 6379:6379 redis:7-alpine
+	docker run -d --rm --name wsbro-test-nats -p 4222:4222 nats:2-alpine
+	WSBRO_TEST_REDIS_ADDR=localhost:6379 WSBRO_TEST_NATS_URL=nats://localhost:4222 \
+		go test -race -count=1 ./... ; status=$$?; \
+		docker stop wsbro-test-redis wsbro-test-nats >/dev/null; exit $$status
 
-rebuild: build
-	$(COMPOSE) restart wsbro
-	@echo "WSBro restarted with fresh binary"
+## lint: gofmt, go vet, staticcheck and govulncheck
+lint:
+	test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
+	go vet ./...
+	go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-## Testing
+## e2e: Laravel end-to-end tests (LARAVEL=12|13, BROADCASTER=reverb|pusher)
+e2e:
+	cd examples/laravel && docker compose up --build --abort-on-container-exit --exit-code-from e2e; \
+		status=$$?; docker compose down -v; exit $$status
 
-test-go:
-	go test ./server/ -v -timeout 30s
+## bench: load test a running server (override with ARGS="-conns 50000")
+bench:
+	go run ./cmd/wsbro-bench $(ARGS)
 
-test-api: test-up
-	@echo "Waiting for services..."
-	@sleep 5
-	$(COMPOSE) exec laravel php artisan test --filter=WsBroApiTest --testdox
+## docker: build the Docker image
+docker:
+	docker build --build-arg VERSION=$(VERSION) -t wsbro:$(VERSION) .
 
-test-dusk: test-up
-	@echo "Waiting for services..."
-	@sleep 5
-	$(COMPOSE) exec laravel php artisan dusk --filter=WsBroTest --testdox
-
-test: test-go test-api test-dusk
-	@echo ""
-	@echo "All tests passed!"
-
-## Cleanup
-
-clean: test-down
-	rm -f $(BINARY)
-	$(COMPOSE) down -v --rmi local
-
-## Logs
-
-logs:
-	$(COMPOSE) logs -f
-
-logs-wsbro:
-	$(COMPOSE) logs -f wsbro
-
-logs-laravel:
-	$(COMPOSE) logs -f laravel
+clean:
+	rm -f wsbro coverage.out

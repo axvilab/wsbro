@@ -1,9 +1,7 @@
-.git
-.github
-.idea
-.claude
-.playwright-mcp
-*.md
-!README.md
-Dockerfile
-docker-compose.yml
+*
+!go.mod
+!go.sum
+!main.go
+!internal/
+!dashboard/
+internal/**/*_test.go
