@@ -1,59 +1,66 @@
+# End-to-end environment: WSBro built from this repository, a Laravel 13 app and a test runner
+# that talks to both with laravel-echo and pusher-js.
+#
+#   docker compose up --build --abort-on-container-exit --exit-code-from e2e
+#   LARAVEL=11 BROADCASTER=pusher docker compose up --build --abort-on-container-exit --exit-code-from e2e
+
 services:
   wsbro:
-    image: alpine:3.22
-    working_dir: /app
-    command: ["./wsbro"]
+    build: ../..
+    environment:
+      WSBRO_DASHBOARD_PASSWORD: secret
+      WSBRO_APPS: >
+        [{"id":"app-1","key":"app-key-1","secret":"app-secret-1","webhook_url":"http://laravel:8000/api/wsbro/webhook"},
+         {"id":"app-2","key":"app-key-2","secret":"app-secret-2"}]
     ports:
       - "6001:6001"
-    volumes:
-      - ../../wsbro:/app/wsbro:ro
-    environment:
-      WSBRO_PORT: "6001"
-      WSBRO_ADAPTER: "memory"
-      WSBRO_DASHBOARD_PASSWORD: ""
-      WSBRO_MAX_MESSAGES_PER_SECOND: "100"
-      WSBRO_MAX_CONNECTIONS: "50"
-      WSBRO_WEBHOOK_URL: "http://laravel:8000/api/wsbro/webhook"
-      WSBRO_APPS: >
-        [
-          {"id":"app-1","key":"app-key-1","secret":"app-secret-1","webhook_url":"http://laravel:8000/api/wsbro/webhook","max_connections":30,"max_messages_per_second":50},
-          {"id":"app-2","key":"app-key-2","secret":"app-secret-2","max_connections":10,"max_messages_per_second":20}
-        ]
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6001/"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
 
   laravel:
     build:
       context: .
-      dockerfile: Dockerfile
+      args:
+        LARAVEL: ${LARAVEL:-13}
+    environment:
+      APP_ENV: local
+      APP_KEY: base64:2fl+Ktvkfl+Fuz4Qp/A75G2RTiWVA/ZoKZvp6fiiM10=
+      APP_URL: http://laravel:8000
+      BROADCAST_CONNECTION: ${BROADCASTER:-reverb}
+      CACHE_STORE: file
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: sync
+      REVERB_APP_ID: app-1
+      REVERB_APP_KEY: app-key-1
+      REVERB_APP_SECRET: app-secret-1
+      REVERB_HOST: wsbro
+      REVERB_PORT: 6001
+      REVERB_SCHEME: http
+      PUSHER_APP_ID: app-1
+      PUSHER_APP_KEY: app-key-1
+      PUSHER_APP_SECRET: app-secret-1
+      PUSHER_HOST: wsbro
+      PUSHER_PORT: 6001
+      PUSHER_SCHEME: http
     ports:
       - "8000:8000"
-    volumes:
-      - ./app:/var/www/html
-    environment:
-      APP_KEY: "base64:wsbro-test-key-32chars-padding!!"
-      APP_ENV: testing
-      APP_URL: "http://laravel:8000"
-      BROADCAST_CONNECTION: pusher
-      PUSHER_APP_ID: "app-1"
-      PUSHER_APP_KEY: "app-key-1"
-      PUSHER_APP_SECRET: "app-secret-1"
-      PUSHER_HOST: "wsbro"
-      PUSHER_PORT: "6001"
-      PUSHER_SCHEME: "http"
     depends_on:
       wsbro:
         condition: service_healthy
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8000/up') === false ? 1 : 0);"]
+      interval: 2s
+      retries: 30
 
-  chrome:
-    image: selenium/standalone-chromium:latest
-    ports:
-      - "4444:4444"
-      - "7900:7900"
-    shm_size: 2g
-    restart: unless-stopped
+  e2e:
+    image: node:22-alpine
+    working_dir: /e2e
+    volumes:
+      - ./e2e:/e2e
+    environment:
+      BROADCASTER: ${BROADCASTER:-reverb}
+      LARAVEL_URL: http://laravel:8000
+      WSBRO_HOST: wsbro
+      WSBRO_PORT: 6001
+    command: sh -c "npm ci --no-audit --no-fund --silent && node --test"
+    depends_on:
+      laravel:
+        condition: service_healthy

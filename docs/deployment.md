@@ -1,179 +1,160 @@
 # Deployment
 
-## Binary
-
-Build and copy to your server:
+## Docker
 
 ```bash
-# Build for Linux (from any OS)
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o wsbro .
-
-# Copy to server
-scp wsbro user@your-server:/opt/wsbro/
-
-# Run
-ssh user@your-server "/opt/wsbro/wsbro"
+docker run -d --name wsbro --restart unless-stopped \
+  -p 6001:6001 \
+  --ulimit nofile=1048576:1048576 \
+  -e WSBRO_APP_ID=my-app \
+  -e WSBRO_APP_KEY=my-key \
+  -e WSBRO_APP_SECRET=my-secret \
+  -e WSBRO_DASHBOARD_PASSWORD=change-me \
+  -e WSBRO_LOG_FORMAT=json \
+  ghcr.io/axvilab/wsbro:latest
 ```
 
-## Systemd Service
+The image is about 20 MB, runs as an unprivileged user, has a built-in health check and supports
+`linux/amd64` and `linux/arm64`. Pin a version (`ghcr.io/axvilab/wsbro:0.2.0`) in production.
 
-Create `/etc/systemd/system/wsbro.service`:
+### Docker Compose next to Laravel
+
+```yaml
+services:
+  wsbro:
+    image: ghcr.io/axvilab/wsbro:latest
+    restart: unless-stopped
+    ports:
+      - "6001:6001"
+    ulimits:
+      nofile: { soft: 1048576, hard: 1048576 }
+    environment:
+      WSBRO_APP_ID: ${REVERB_APP_ID}
+      WSBRO_APP_KEY: ${REVERB_APP_KEY}
+      WSBRO_APP_SECRET: ${REVERB_APP_SECRET}
+      WSBRO_DASHBOARD_PASSWORD: ${WSBRO_DASHBOARD_PASSWORD}
+      WSBRO_ALLOWED_ORIGINS: example.com
+```
+
+In Laravel's `.env`, `REVERB_HOST=wsbro` (the service name) and `VITE_REVERB_HOST` the public host.
+
+## Binary
+
+Download a release for your platform from GitHub Releases, or build it:
+
+```bash
+go install github.com/axvilab/wsbro@latest
+# or
+git clone https://github.com/axvilab/wsbro && cd wsbro && make build
+```
+
+`wsbro -version` prints the version.
+
+### systemd
+
+`/etc/systemd/system/wsbro.service`:
 
 ```ini
 [Unit]
-Description=WSBro WebSocket Server
-After=network.target
+Description=WSBro WebSocket server
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=simple
-User=www-data
-ExecStart=/opt/wsbro/wsbro
-Restart=on-failure
-RestartSec=5
-
-Environment=WSBRO_PORT=6001
-Environment=WSBRO_APP_ID=your-app-id
-Environment=WSBRO_APP_KEY=your-app-key
-Environment=WSBRO_APP_SECRET=your-app-secret
-Environment=WSBRO_DASHBOARD_PASSWORD=your-password
+ExecStart=/usr/local/bin/wsbro
+EnvironmentFile=/etc/wsbro.env
+User=wsbro
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable wsbro
-sudo systemctl start wsbro
-sudo systemctl status wsbro
-```
-
-## Docker
+`/etc/wsbro.env` (readable by root only, it holds secrets):
 
 ```bash
-docker run -d \
-  --name wsbro \
-  --restart unless-stopped \
-  -p 6001:6001 \
-  -e WSBRO_APP_ID=your-app-id \
-  -e WSBRO_APP_KEY=your-app-key \
-  -e WSBRO_APP_SECRET=your-app-secret \
-  -e WSBRO_DASHBOARD_PASSWORD=your-password \
-  axvi/wsbro
+WSBRO_APP_ID=my-app
+WSBRO_APP_KEY=my-key
+WSBRO_APP_SECRET=my-secret
+WSBRO_DASHBOARD_PASSWORD=change-me
+WSBRO_ALLOWED_ORIGINS=example.com
 ```
 
-## Docker Compose
-
-```yaml
-services:
-  wsbro:
-    image: axvi/wsbro
-    ports:
-      - "6001:6001"
-    environment:
-      WSBRO_APP_ID: "your-app-id"
-      WSBRO_APP_KEY: "your-app-key"
-      WSBRO_APP_SECRET: "your-app-secret"
-      WSBRO_DASHBOARD_PASSWORD: "your-password"
-    restart: unless-stopped
+```bash
+sudo useradd --system --no-create-home wsbro
+sudo systemctl daemon-reload && sudo systemctl enable --now wsbro
+journalctl -u wsbro -f
 ```
 
-## Nginx Reverse Proxy
+## TLS with a reverse proxy
 
-To serve WSBro behind Nginx with SSL:
+Browsers on an HTTPS site need `wss://`. Let a proxy terminate TLS.
+
+**Caddy** (gets certificates automatically):
+
+```
+ws.example.com {
+    reverse_proxy 127.0.0.1:6001
+}
+```
+
+**Nginx:**
 
 ```nginx
-upstream wsbro {
-    server 127.0.0.1:6001;
-}
-
 server {
     listen 443 ssl;
-    server_name ws.yourdomain.com;
+    http2 off;
+    server_name ws.example.com;
 
-    ssl_certificate /etc/letsencrypt/live/ws.yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/ws.yourdomain.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/ws.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ws.example.com/privkey.pem;
 
     location / {
-        proxy_pass http://wsbro;
+        proxy_pass http://127.0.0.1:6001;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 86400;
+        proxy_read_timeout 1h;
+        proxy_buffering off;   # keeps the dashboard's live console streaming
     }
 }
 ```
 
-Then update your Laravel `.env`:
+Then in Laravel: `VITE_REVERB_HOST=ws.example.com`, `VITE_REVERB_PORT=443`, `VITE_REVERB_SCHEME=https`.
+Laravel itself can keep talking to WSBro over the private network (`REVERB_HOST=127.0.0.1`, `REVERB_PORT=6001`,
+`REVERB_SCHEME=http`).
 
-```env
-PUSHER_HOST=ws.yourdomain.com
-PUSHER_PORT=443
-PUSHER_SCHEME=https
-```
+To serve TLS without a proxy, set `WSBRO_TLS_CERT` and `WSBRO_TLS_KEY`.
 
-And Laravel Echo:
+## Health checks and monitoring
 
-```javascript
-window.Echo = new Echo({
-    broadcaster: 'pusher',
-    key: import.meta.env.VITE_PUSHER_APP_KEY,
-    wsHost: 'ws.yourdomain.com',
-    wsPort: 443,
-    wssPort: 443,
-    forceTLS: true,
-    enabledTransports: ['ws', 'wss'],
-    cluster: '',
-});
-```
+- `GET /health` (or `/up`) returns `200 {"status":"ok"}`.
+- `GET /metrics/prometheus` for Prometheus:
 
-## Caddy Reverse Proxy
+  ```yaml
+  scrape_configs:
+    - job_name: wsbro
+      static_configs:
+        - targets: ["wsbro:6001"]
+      metrics_path: /metrics/prometheus
+  ```
 
-If you use Caddy (simpler SSL setup):
+- The [dashboard](dashboard.md) at `/dashboard` for humans.
 
-```
-ws.yourdomain.com {
-    reverse_proxy localhost:6001
-}
-```
+## Production checklist
 
-Caddy handles SSL automatically.
-
-## With FrankenPHP
-
-If your Laravel runs on FrankenPHP + Caddy, add WSBro as a separate upstream:
-
-```
-ws.yourdomain.com {
-    reverse_proxy localhost:6001
-}
-
-yourdomain.com {
-    php_server
-}
-```
-
-## Health Check
-
-Use the root endpoint for health checks:
-
-```bash
-curl http://localhost:6001/
-# WSBro is running on port 6001
-```
-
-For Docker health checks:
-
-```yaml
-services:
-  wsbro:
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6001/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-```
+- [ ] Real secrets: WSBro warns at startup when the default secret is used.
+- [ ] `WSBRO_ALLOWED_ORIGINS` set to your sites.
+- [ ] TLS in front (browsers on HTTPS pages need `wss://`).
+- [ ] `WSBRO_MAX_CONNECTIONS` set, file descriptor limit raised.
+- [ ] `WSBRO_DASHBOARD_PASSWORD` set if you want the dashboard; it is off otherwise.
+- [ ] `WSBRO_LOG_FORMAT=json` if logs go to a collector.
+- [ ] A pinned image tag or release version.

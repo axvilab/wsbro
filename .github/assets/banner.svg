@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400" role="img" aria-label="WSBro: Pusher-compatible WebSocket server">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1226"/>
+      <stop offset="1" stop-color="#060912"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22e3a4"/>
+      <stop offset=".5" stop-color="#14b8e6"/>
+      <stop offset="1" stop-color="#6d5dfc"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".27" cy=".5" r=".45">
+      <stop offset="0" stop-color="#14b8e6" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#14b8e6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".28"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="#fff" fill-opacity=".06"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="400" rx="28" fill="url(#bg)"/>
+  <rect width="1280" height="400" rx="28" fill="url(#dots)"/>
+  <rect width="1280" height="400" rx="28" fill="url(#glow)"/>
+  <g transform="translate(150 80) scale(.47)">
+    <path d="M256 0c180 0 256 76 256 256s-76 256-256 256S0 436 0 256 76 0 256 0Z" fill="url(#brand)"/>
+    <path d="M256 0c180 0 256 76 256 256H0C0 76 76 0 256 0Z" fill="url(#shine)"/>
+    <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="66">
+      <path d="M108 156 196 362 284 156" stroke-opacity=".6"/>
+      <path d="M228 156 316 362 404 156"/>
+    </g>
+  </g>
+  <text x="440" y="205" fill="#fff" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="104" font-weight="800" letter-spacing="-4">WSBro</text>
+  <text x="444" y="262" fill="#9aa6c0" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="30" font-weight="500">Pusher-compatible WebSocket server for Laravel</text>
+  <text x="444" y="310" fill="url(#brand)" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" font-weight="600">single binary · Reverb drop-in · 100k connections</text>
+</svg>

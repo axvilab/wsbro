@@ -1,266 +1,136 @@
-# API Reference
+# API reference
 
-WSBro implements [Pusher Protocol 7](https://pusher.com/docs/channels/library_auth_reference/pusher-websockets-protocol/) — the current standard used by `pusher-js` v7/v8 and `laravel-echo`.
-
-All HTTP API endpoints require HMAC authentication via query parameters.
-
-## Limits
-
-| Limit | Value | Description |
-|-------|-------|-------------|
-| Event data size | 10 KB | Maximum HTTP request body size |
-| WebSocket message | 64 KB | Maximum incoming WebSocket message size |
-| Channels per connection | 100 | Maximum channel subscriptions per WebSocket connection |
-| Presence channel_data | Required | Must include `user_id` field |
+WSBro implements the [Pusher Channels HTTP API](https://pusher.com/docs/channels/library_auth_reference/rest-api/)
+and [WebSocket protocol 7](https://pusher.com/docs/channels/library_auth_reference/pusher-websockets-protocol/).
+Any official Pusher server SDK (PHP, Node.js, Go, Python, Ruby, …) works without changes.
 
 ## Authentication
 
-Every request must include these query parameters:
+Every `/apps/{app_id}/…` request is signed with the app secret, exactly like Pusher:
 
-| Parameter | Description |
-|-----------|-------------|
-| `auth_key` | Your app key |
-| `auth_timestamp` | Current Unix timestamp |
-| `auth_version` | Always `1.0` |
-| `auth_signature` | HMAC-SHA256 signature |
+1. Add `auth_key`, `auth_timestamp` (Unix seconds), `auth_version=1.0` and, for requests with a body,
+   `body_md5` (hex MD5 of the body) to the query string.
+2. Sign `METHOD\nPATH\nSORTED_QUERY` with HMAC-SHA256 and the secret, where `SORTED_QUERY` is every
+   parameter except `auth_signature`, lower-cased keys, sorted, joined with `&`.
+3. Add the hex signature as `auth_signature`.
 
-The signature is computed as:
+WSBro rejects a request with `401` when the signature is wrong, the key belongs to another app, the
+timestamp is more than 10 minutes off, or `body_md5` does not match the body. The SDKs do all of this
+for you.
+
+## Trigger an event
 
 ```
-HMAC-SHA256(
-  app_secret,
-  "POST\n/apps/{app_id}/events\nauth_key={key}&auth_timestamp={ts}&auth_version=1.0&body_md5={md5}"
-)
+POST /apps/{app_id}/events
 ```
-
-Where `body_md5` is the MD5 hex digest of the request body.
-
-Laravel's Pusher SDK handles this automatically. For manual requests, see examples below.
-
-## Endpoints
-
-### POST /apps/{app_id}/events
-
-Broadcast an event to one or more channels.
-
-**Single channel:**
-
-```bash
-curl -X POST "http://localhost:6001/apps/app-id/events?\
-auth_key=app-key&\
-auth_timestamp=$(date +%s)&\
-auth_version=1.0&\
-auth_signature=COMPUTED_SIGNATURE" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"order.created","channel":"orders","data":"{\"id\":1}"}'
-```
-
-**Multiple channels:**
 
 ```json
 {
-  "name": "notification",
-  "channels": ["orders", "admin", "support"],
-  "data": "{\"message\": \"New order!\"}"
-}
-```
-
-**Exclude sender:**
-
-```json
-{
-  "name": "message.sent",
-  "channel": "private-chat",
-  "data": "{\"text\": \"Hello\"}",
+  "name": "order.shipped",
+  "channels": ["orders", "private-App.Models.User.1"],
+  "data": "{\"id\": 1}",
   "socket_id": "123.456"
 }
 ```
 
-**Response:**
+| Field | Description |
+|---|---|
+| `name` | Event name, up to 200 characters |
+| `channel` / `channels` | One channel, or up to 100 |
+| `data` | Payload as a JSON string (a raw JSON object is accepted too), up to `WSBRO_MAX_EVENT_DATA_SIZE` |
+| `socket_id` | Optional: this connection does not receive the event (Laravel's `toOthers()`) |
+
+Response: `200 {}`. Errors: `400` invalid event, `413` payload too large, `401` bad signature.
+
+To reach a signed-in user, use the channel `#server-to-user-{user_id}` (SDK: `sendToUser`).
+
+## Trigger a batch
+
+```
+POST /apps/{app_id}/batch_events
+```
 
 ```json
-{"status": "ok"}
+{"batch": [
+  {"name": "first", "channel": "orders", "data": "{}"},
+  {"name": "second", "channel": "orders", "data": "{}"}
+]}
 ```
 
-### POST /apps/{app_id}/batch_events
+Up to 100 events. The batch is validated first and delivered only if every event is valid.
 
-Broadcast multiple events in a single request.
+## Channels
+
+```
+GET /apps/{app_id}/channels?filter_by_prefix=presence-&info=user_count,subscription_count
+```
 
 ```json
-{
-  "batch": [
-    {"name": "order.created", "channel": "orders", "data": "{\"id\": 1}"},
-    {"name": "notification", "channel": "admin", "data": "{\"text\": \"New order\"}"}
-  ]
-}
+{"channels": {"presence-chat": {"user_count": 2, "subscription_count": 3}}}
 ```
 
-**Response:**
+`user_count` requires `filter_by_prefix=presence-`, as on Pusher.
+
+```
+GET /apps/{app_id}/channels/{channel}?info=subscription_count,user_count
+```
 
 ```json
-{"status": "ok"}
+{"occupied": true, "subscription_count": 3, "user_count": 2}
 ```
 
-### GET /apps/{app_id}/channels
+An unknown channel returns `{"occupied": false}`.
 
-List all active channels.
-
-**Query parameters:**
-
-| Parameter | Description |
-|-----------|-------------|
-| `filter_by_prefix` | Filter channels by name prefix (e.g. `private-`, `presence-`) |
-
-**Example:** `GET /apps/{app_id}/channels?filter_by_prefix=presence-`
-
-**Response:**
+```
+GET /apps/{app_id}/channels/{presence_channel}/users
+```
 
 ```json
-{
-  "channels": {
-    "orders": {
-      "subscription_count": 5,
-      "occupied": true
-    },
-    "private-chat": {
-      "subscription_count": 2,
-      "occupied": true
-    }
-  }
-}
+{"users": [{"id": "1"}, {"id": "2"}]}
 ```
 
-### GET /apps/{app_id}/channels/{channel_name}
-
-Get info about a specific channel.
-
-**Response (public/private):**
-
-```json
-{
-  "occupied": true,
-  "subscription_count": 5
-}
-```
-
-**Response (presence):**
-
-```json
-{
-  "occupied": true,
-  "subscription_count": 5,
-  "user_count": 3
-}
-```
-
-### GET /apps/{app_id}/channels/{channel_name}/users
-
-List users in a presence channel. Only works for `presence-` channels.
-
-**Response:**
-
-```json
-{
-  "users": [
-    {"id": "1"},
-    {"id": "2"},
-    {"id": "3"}
-  ]
-}
-```
-
-### GET /metrics
-
-Server metrics as JSON. No authentication required.
-
-**Response:**
-
-```json
-{
-  "connections": 25,
-  "peak_connections": 100,
-  "total_events": 1234,
-  "total_messages": 5678,
-  "channels": 10,
-  "version": "0.1.0"
-}
-```
-
-### GET /metrics/prometheus
-
-Server metrics in Prometheus text format. Use this endpoint as a scrape target in Prometheus/Grafana.
-
-**Response:**
+## Terminate a user's connections
 
 ```
-# HELP wsbro_connections Current WebSocket connections
-# TYPE wsbro_connections gauge
-wsbro_connections 25
-# HELP wsbro_peak_connections Peak WebSocket connections
-# TYPE wsbro_peak_connections gauge
-wsbro_peak_connections 100
-# HELP wsbro_channels Active channels
-# TYPE wsbro_channels gauge
-wsbro_channels 10
-# HELP wsbro_events_total Total broadcast events
-# TYPE wsbro_events_total counter
-wsbro_events_total 1234
-# HELP wsbro_messages_total Total messages sent
-# TYPE wsbro_messages_total counter
-wsbro_messages_total 5678
+POST /apps/{app_id}/users/{user_id}/terminate_connections
 ```
 
-## WebSocket Protocol
+Closes every connection signed in as the user (close code 4009, so clients do not reconnect).
 
-Clients connect via WebSocket:
+## Health and metrics
 
-```
-ws://localhost:6001/app/{app_key}
-```
+These endpoints need no authentication.
 
-### Connection
+| Endpoint | Description |
+|---|---|
+| `GET /health`, `GET /up` | `{"status":"ok"}` for load balancers and orchestrators |
+| `GET /metrics` | JSON: connections, peak, channels, events, messages, per-app usage, version, uptime |
+| `GET /metrics/prometheus` | The same in Prometheus format, with `app` labels for per-app gauges |
 
-After connecting, the server sends:
+## WebSocket
 
-```json
-{
-  "event": "pusher:connection_established",
-  "data": "{\"socket_id\":\"123.456\",\"activity_timeout\":120}"
-}
-```
+Connect to `ws://host:6001/app/{app_key}`. The server answers with `pusher:connection_established`
+containing the `socket_id` and `activity_timeout` (120 s).
 
-### Subscribe
+Client to server: `pusher:ping`, `pusher:subscribe`, `pusher:unsubscribe`, `pusher:signin`, `client-*`.
 
-```json
-{"event": "pusher:subscribe", "data": {"channel": "orders"}}
-```
+Server to client: `pusher:pong`, `pusher:error`, `pusher_internal:subscription_succeeded`,
+`pusher_internal:member_added`, `pusher_internal:member_removed`, `pusher:cache_miss`,
+`pusher:signin_success`, and your events.
 
-For private/presence channels, include `auth`:
+The server also sends WebSocket pings every minute and drops clients that do not answer within
+15 seconds, so dead connections never pile up.
 
-```json
-{
-  "event": "pusher:subscribe",
-  "data": {
-    "channel": "private-orders",
-    "auth": "app-key:SIGNATURE"
-  }
-}
-```
+### Error codes
 
-### Unsubscribe
-
-```json
-{"event": "pusher:unsubscribe", "data": {"channel": "orders"}}
-```
-
-### Ping/Pong
-
-```json
-{"event": "pusher:ping"}
-```
-
-Server responds with:
-
-```json
-{"event": "pusher:pong", "data": "null"}
-```
+| Code | Meaning | Client behaviour |
+|---|---|---|
+| 4001 | Unknown app key | does not reconnect |
+| 4009 | Unauthorized: bad channel or user signature, or terminated by the server | does not reconnect |
+| 4100 | Over capacity, or the client was too slow to receive messages | reconnects after a back-off |
+| 4200 | Disconnected from the dashboard | reconnects immediately |
+| 4301 | Rate limit exceeded (the message is dropped, the connection stays) | |
+| 4302 | Invalid channel name | |
+| 4303 | Too many channels for this connection | |
+| 4304 | Invalid event (bad JSON, client event not allowed, payload too large) | |
+| 1001 | Server is shutting down | reconnects (to another instance) |

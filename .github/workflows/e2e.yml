@@ -1,0 +1,52 @@
+# Laravel end-to-end tests. They take a few minutes, so they run when the protocol code changes,
+# before every release and on demand, not on every push.
+name: Laravel E2E
+
+on:
+  push:
+    branches: [main]
+    paths: ["internal/**", "main.go", "go.mod", "Dockerfile", "examples/laravel/**"]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  laravel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        laravel: ["12", "13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        working-directory: examples/laravel
+        env:
+          LARAVEL: ${{ matrix.laravel }}
+        run: docker compose build
+
+      - name: Reverb broadcaster
+        working-directory: examples/laravel
+        env:
+          LARAVEL: ${{ matrix.laravel }}
+          BROADCASTER: reverb
+        run: |
+          docker compose up --abort-on-container-exit --exit-code-from e2e
+          docker compose down -v
+
+      - name: Pusher broadcaster
+        working-directory: examples/laravel
+        env:
+          LARAVEL: ${{ matrix.laravel }}
+          BROADCASTER: pusher
+        run: |
+          docker compose up --abort-on-container-exit --exit-code-from e2e
+          docker compose down -v
