@@ -155,6 +155,13 @@ for WebSockets, and the smallest possible thing to deploy and understand.
 
 Ideas and pull requests are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## From the author
+
+Curious about Rust? I wrote two books for Laravel developers:
+[Rust for Laravel Developers](https://leanpub.com/rust-for-laravel-developers) and
+[Loco for Laravel Developers](https://leanpub.com/loco-for-laravel-developers).
+More tools and posts on [axvi.dev](https://axvi.dev).
+
 ## License
 
 [MIT](LICENSE) © AxViLab
