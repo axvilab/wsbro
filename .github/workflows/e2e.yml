@@ -25,7 +25,7 @@ jobs:
       matrix:
         laravel: ["12", "13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build images
         working-directory: examples/laravel
